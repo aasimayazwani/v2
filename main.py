@@ -1,76 +1,73 @@
+# app.py
 import streamlit as st
-import os
-from langchain_groq import ChatGroq
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.prompts import ChatPromptTemplate
-from langchain.chains import create_retrieval_chain
-from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import PyPDFDirectoryLoader
-import openai
+import json
+import pandas as pd
 
-from dotenv import load_dotenv
-load_dotenv()
-## load the GROQ API Key
-os.environ['OPENAI_API_KEY']=os.getenv("OPENAI_API_KEY")
-os.environ['GROQ_API_KEY']=os.getenv("GROQ_API_KEY")
+# --- Local file loading (JSON, CSV, PDF) ---
+@st.cache_data
 
-groq_api_key=os.getenv("GROQ_API_KEY")
+def load_json_file(filepath):
+    try:
+        with open(filepath, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        st.error(f"Failed to load JSON: {e}")
+        return None
 
-llm=ChatGroq(groq_api_key=groq_api_key,model_name="Llama3-8b-8192")
+def parse_csv_file(filepath):
+    try:
+        return pd.read_csv(filepath)
+    except Exception as e:
+        st.error(f"Failed to read CSV: {e}")
+        return None
 
-prompt=ChatPromptTemplate.from_template(
-    """
-    Answer the questions based on the provided context only.
-    Please provide the most accurate respone based on the question
-    <context>
-    {context}
-    <context>
-    Question:{input}
+def parse_pdf_file(filepath):
+    return "PDF parsing placeholder."  # Extend as needed
 
-    """
+# --- Helper for JSON flattening ---
+def flatten_json(y):
+    out = []
+    def flatten(x, name=''):
+        if isinstance(x, dict):
+            for a in x:
+                flatten(x[a], f"{name}{a}_")
+        elif isinstance(x, list):
+            for i, a in enumerate(x):
+                flatten(a, f"{name}{i}_")
+        else:
+            out.append(f"{name[:-1]}: {x}")
+    flatten(y)
+    return "\n".join(out)
 
-)
+# --- Dummy LLM Agent ---
+class DummyAgent:
+    def __init__(self, context_text):
+        self.context = context_text
 
-def create_vector_embedding():
-    if "vectors" not in st.session_state:
-        st.session_state.embeddings=OpenAIEmbeddings()
-        st.session_state.loader=PyPDFDirectoryLoader("research_papers") ## Data Ingestion step
-        st.session_state.docs=st.session_state.loader.load() ## Document Loading
-        st.session_state.text_splitter=RecursiveCharacterTextSplitter(chunk_size=1000,chunk_overlap=200)
-        st.session_state.final_documents=st.session_state.text_splitter.split_documents(st.session_state.docs[:50])
-        st.session_state.vectors=FAISS.from_documents(st.session_state.final_documents,st.session_state.embeddings)
-st.title("RAG Document Q&A With Groq And Lama3")
+    def run(self, query):
+        return f"(Echo) You asked: '{query}'\nContext preview:\n{self.context[:300]}..."
 
-user_prompt=st.text_input("Enter your query from the research paper")
+def build_dummy_agent(data_text):
+    return DummyAgent(data_text)
 
-if st.button("Document Embedding"):
-    create_vector_embedding()
-    st.write("Vector Database is ready")
+# --- Main UI ---
+st.set_page_config(page_title="Transit Data Chatbot", layout="centered")
+st.title("Transit Data Chatbot")
 
-import time
+# Automatically load embedded file (update path as needed)
+json_data = load_json_file("getvehicles.json")
 
-if user_prompt:
-    document_chain=create_stuff_documents_chain(llm,prompt)
-    retriever=st.session_state.vectors.as_retriever()
-    retrieval_chain=create_retrieval_chain(retriever,document_chain)
+if json_data:
+    st.success("Loaded embedded transit JSON file.")
+    if st.checkbox("Show raw JSON"):
+        st.json(json_data)
 
-    start=time.process_time()
-    response=retrieval_chain.invoke({'input':user_prompt})
-    print(f"Response time :{time.process_time()-start}")
+    flattened_text = flatten_json(json_data)
+    agent = build_dummy_agent(flattened_text)
 
-    st.write(response['answer'])
-
-    ## With a streamlit expander
-    with st.expander("Document similarity Search"):
-        for i,doc in enumerate(response['context']):
-            st.write(doc.page_content)
-            st.write('------------------------')
-
-
-
-
-
-
+    query = st.text_input("Ask a question about the transit data:")
+    if query:
+        answer = agent.run(query)
+        st.write("Answer:", answer)
+else:
+    st.error("Failed to load the embedded JSON file. Please check the path.")
