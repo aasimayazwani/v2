@@ -53,34 +53,50 @@ faiss_meta_path = os.path.join(FAISS_DIR, "index.pkl")
 if os.path.exists(faiss_index_path) and os.path.exists(faiss_meta_path):
     st.session_state.vectors = FAISS.load_local(FAISS_DIR, embedder, allow_dangerous_deserialization=True)
 
-# === Streamlit Page ===
+# === Page Configuration ===
 st.set_page_config(page_title="RAG Chatbot | PDF + CSV", layout="wide")
-st.title("📄 RAG Chatbot | CSV + PDF | Upload + Summarize + Chat")
 
-# === Sidebar with file listing and delete buttons ===
 with st.sidebar:
-    st.markdown("### 📂 Uploaded Files")
+    st.markdown("## 📁 Uploaded Files")
     existing_files = sorted(f for f in os.listdir(UPLOAD_DIR) if f.endswith((".csv", ".pdf")))
-
     if existing_files:
         for file in existing_files:
             file_path = os.path.join(UPLOAD_DIR, file)
-            with st.form(key=f"delete_form_{file}"):
-                st.markdown(f"- `{file}`")
-                delete = st.form_submit_button("❌ Delete")
-                if delete:
-                    os.remove(file_path)
-                    st.success(f"{file} deleted.")
-                    st.experimental_rerun()
+            col1, col2 = st.columns([4, 1])
+            col1.markdown(f"`{file}`")
+            if col2.button("❌", key=f"del_{file}"):
+                os.remove(file_path)
+                st.success(f"Deleted {file}")
+                st.experimental_rerun()
     else:
-        st.info("No uploaded files found.")
+        st.info("Upload files to begin.")
 
-# === Upload Section ===
-st.markdown("<style>.upload-icon { position: absolute; top: 20px; right: 20px; }</style>", unsafe_allow_html=True)
-with st.expander("➕ Upload Files", expanded=False):
-    uploaded = st.file_uploader("", type=["pdf", "csv"], accept_multiple_files=True, label_visibility="collapsed")
+st.markdown("""
+    <style>
+    .block-container {
+        padding-top: 2rem;
+    }
+    .stChatInput input {
+        font-size: 1.2rem;
+    }
+    .stDownloadButton button, .stButton button {
+        border-radius: 10px;
+        padding: 0.6rem 1.2rem;
+        font-weight: bold;
+    }
+    .stExpanderHeader {
+        font-weight: bold;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# === Handle Upload ===
+st.title("🧠 RAG Chatbot")
+st.caption("Chat with your uploaded PDFs and CSVs using Llama3")
+
+with st.expander("📤 Upload Files", expanded=True):
+    uploaded = st.file_uploader("Upload PDF or CSV", type=["pdf", "csv"], accept_multiple_files=True)
+
+# === File Handling ===
 if uploaded:
     all_docs = []
     for file in uploaded:
@@ -97,36 +113,35 @@ if uploaded:
             try:
                 df = pd.read_csv(path)
                 st.session_state.csv_dataframes[file.name] = df
-                with st.expander(f"📊 Summary of `{file.name}`"):
+                with st.expander(f"📊 `{file.name}` Summary"):
                     st.dataframe(df.describe(include='all').transpose())
             except Exception as e:
-                st.warning(f"Unable to summarize {file.name}: {e}")
+                st.warning(f"Couldn't summarize {file.name}: {e}")
 
     if all_docs:
         splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         chunks = splitter.split_documents(all_docs)
         new_index = FAISS.from_documents(chunks, embedder)
-
         if st.session_state.vectors:
             st.session_state.vectors.merge_from(new_index)
         else:
             st.session_state.vectors = new_index
         st.session_state.vectors.save_local(FAISS_DIR)
-        st.success("✅ Documents processed and indexed.")
+        st.success("✅ Documents indexed.")
 
-# === Chat Input ===
-user_input = st.chat_input("Ask a question about your uploaded documents")
+# === Chat Section ===
+st.divider()
+st.subheader("💬 Chat")
+user_input = st.chat_input("Ask about your documents...")
 
 if user_input:
     answer = ""
     csv_used = False
 
-    # Try answering with pandas if the query matches column patterns
     for name, df in st.session_state.csv_dataframes.items():
         cols_lower = [col.lower() for col in df.columns]
         if any(re.search(col, user_input.lower()) for col in cols_lower):
             try:
-                # Attempt summary type questions
                 if "sum" in user_input.lower():
                     result = df.sum(numeric_only=True)
                 elif "average" in user_input.lower() or "mean" in user_input.lower():
@@ -135,26 +150,25 @@ if user_input:
                     result = df.count()
                 else:
                     result = df.describe(include='all').transpose()
-                answer = f"From `{name}`:\n" + result.to_string()
+                answer = f"📊 From `{name}`:\n\n" + result.to_string()
                 csv_used = True
                 break
             except Exception as e:
-                answer = f"Error parsing CSV with pandas: {e}"
+                answer = f"Error: {e}"
                 csv_used = True
                 break
 
-    # If no CSV logic applied, use vector or fallback to LLM
     if not csv_used:
         if st.session_state.vectors:
             chain = create_retrieval_chain(
                 st.session_state.vectors.as_retriever(),
                 create_stuff_documents_chain(llm, prompt),
             )
-            with st.spinner("Searching documents and generating answer..."):
+            with st.spinner("Searching documents..."):
                 result = chain.invoke({"input": user_input})
             answer = result["answer"]
         else:
-            with st.spinner("Using LLM without document context..."):
+            with st.spinner("Thinking..."):
                 result = llm.invoke(user_input)
             answer = result.content if hasattr(result, "content") else str(result)
 
@@ -165,20 +179,22 @@ if user_input:
         "answer": answer
     })
 
-# === Display Chat ===
-for idx, msg in enumerate(st.session_state.chat_history):
-    with st.expander(f"🗨️ Q{idx+1}: {msg['question'][:50]}..."):
-        st.markdown(f"**🕒 {msg['timestamp']}**")
-        st.markdown(f"**🧑 You:**\n{msg['question']}")
-        st.markdown(f"**🤖 Bot:**\n{msg['answer']}")
+# === Display Chat History ===
+if st.session_state.chat_history:
+    for idx, msg in reversed(list(enumerate(st.session_state.chat_history))):
+        with st.chat_message("user"):
+            st.markdown(f"**You:** {msg['question']}")
+        with st.chat_message("assistant"):
+            st.markdown(f"**Bot:** {msg['answer']}")
 
-# === Utilities ===
-col1, col2 = st.columns([1, 1])
+# === Utility Buttons ===
+st.divider()
+col1, col2 = st.columns(2)
 with col1:
-    if st.button("🧹 Clear Chat History"):
+    if st.button("🧹 Clear Chat"):
         st.session_state.chat_history = []
-        st.success("Chat history cleared.")
+        st.experimental_rerun()
 with col2:
     if st.session_state.chat_history:
-        json_data = json.dumps(st.session_state.chat_history, indent=2)
-        st.download_button("⬇️ Download Chat Log", json_data, file_name="chat_history.json")
+        history = json.dumps(st.session_state.chat_history, indent=2)
+        st.download_button("⬇️ Download Chat Log", history, file_name="chat_history.json")
