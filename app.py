@@ -2,6 +2,7 @@
 import streamlit as st
 import json
 import pandas as pd
+import fitz  # PyMuPDF
 
 # === Inline replacements for missing modules ===
 
@@ -12,8 +13,20 @@ def parse_csv(uploaded_file):
         st.error(f"Error reading CSV: {e}")
         return None
 
+
+
 def parse_pdf(uploaded_file):
-    return "PDF parsing not yet implemented."
+    """
+    Parses a PDF file using PyMuPDF and returns the extracted text.
+    """
+    try:
+        with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
+            text = ""
+            for page in doc:
+                text += page.get_text()
+        return text
+    except Exception as e:
+        return f"ERROR parsing PDF: {str(e)}"
 
 def prepare_vectorstore(text: str):
     # Dummy placeholder: you should replace this with your actual vector store builder

@@ -7,7 +7,7 @@ langchain-community
 bs4
 langchain-text-splitters
 wikipedia
-pymupdf
+PyMuPDF
 langchain-openai
 chromadb
 faiss-cpu
