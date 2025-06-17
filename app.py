@@ -13,7 +13,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.chains import create_retrieval_chain
 from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import PyPDFLoader, CSVLoader
+from langchain_community.document_loaders import PyPDFLoader, CSVLoader, JSONLoader
 
 # === Directories ===
 BASE_DIR = "rag_app_data"
@@ -46,6 +46,8 @@ if "vectors" not in st.session_state:
     st.session_state.vectors = None
 if "csv_dataframes" not in st.session_state:
     st.session_state.csv_dataframes = {}
+if "json_dataframes" not in st.session_state:
+    st.session_state.json_dataframes = {}
 
 # === Auto-load existing vectorstore ===
 faiss_index_path = os.path.join(FAISS_DIR, "index.faiss")
@@ -54,11 +56,11 @@ if os.path.exists(faiss_index_path) and os.path.exists(faiss_meta_path):
     st.session_state.vectors = FAISS.load_local(FAISS_DIR, embedder, allow_dangerous_deserialization=True)
 
 # === Page Configuration ===
-st.set_page_config(page_title="RAG Chatbot | PDF + CSV", layout="wide")
+st.set_page_config(page_title="RAG Chatbot | PDF + CSV + JSON", layout="wide")
 
 with st.sidebar:
     st.markdown("## 📁 Uploaded Files")
-    existing_files = sorted(f for f in os.listdir(UPLOAD_DIR) if f.endswith((".csv", ".pdf")))
+    existing_files = sorted(f for f in os.listdir(UPLOAD_DIR) if f.endswith((".csv", ".pdf", ".json")))
     if existing_files:
         for file in existing_files:
             file_path = os.path.join(UPLOAD_DIR, file)
@@ -91,10 +93,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🧠 RAG Chatbot")
-st.caption("Chat with your uploaded PDFs and CSVs using Llama3")
+st.caption("Chat with your uploaded PDFs, CSVs, and JSON using Llama3")
 
 with st.expander("📤 Upload Files", expanded=True):
-    uploaded = st.file_uploader("Upload PDF or CSV", type=["pdf", "csv"], accept_multiple_files=True)
+    uploaded = st.file_uploader("Upload PDF, CSV or JSON", type=["pdf", "csv", "json"], accept_multiple_files=True)
 
 # === File Handling ===
 if uploaded:
@@ -117,6 +119,15 @@ if uploaded:
                     st.dataframe(df.describe(include='all').transpose())
             except Exception as e:
                 st.warning(f"Couldn't summarize {file.name}: {e}")
+        elif file.name.endswith(".json"):
+            try:
+                df = pd.read_json(path)
+                st.session_state.json_dataframes[file.name] = df
+                all_docs.append({'page_content': df.to_json(), 'metadata': {'source': file.name}})
+                with st.expander(f"🗂️ `{file.name}` Preview"):
+                    st.dataframe(df.head())
+            except Exception as e:
+                st.warning(f"Couldn't load {file.name}: {e}")
 
     if all_docs:
         splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
@@ -138,7 +149,7 @@ if user_input:
     answer = ""
     csv_used = False
 
-    for name, df in st.session_state.csv_dataframes.items():
+    for name, df in {**st.session_state.csv_dataframes, **st.session_state.json_dataframes}.items():
         cols_lower = [col.lower() for col in df.columns]
         if any(re.search(col, user_input.lower()) for col in cols_lower):
             try:
