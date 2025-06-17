@@ -1,12 +1,35 @@
 # app.py
 import streamlit as st
 import json
-from file_handlers import parse_pdf, parse_csv  # Assuming you already have these
-from vectorstore_utils import prepare_vectorstore  # Assuming this prepares embeddings
-from df_agent_utils import build_sql_agent  # For handling structured data questions
+import pandas as pd
 
-# --- File upload section ---
+# --- Helper functions (replacing file_handlers.py) ---
+def parse_csv(uploaded_file):
+    """Reads a CSV file and returns a pandas DataFrame."""
+    try:
+        return pd.read_csv(uploaded_file)
+    except Exception as e:
+        raise ValueError(f"Error reading CSV: {e}")
+
+def parse_pdf(uploaded_file):
+    """Dummy PDF parser placeholder."""
+    return "PDF parsing not yet implemented. Please replace with actual logic."
+
+# --- Helper functions (replacing vectorstore_utils.py and df_agent_utils.py) ---
+def prepare_vectorstore(flattened_text):
+    """Placeholder for vectorstore ingestion logic."""
+    return flattened_text  # Simple pass-through
+
+class DummyAgent:
+    def run(self, query):
+        return f"(Echo) You asked: '{query}' — replace this with LLM response logic."
+
+def build_sql_agent(data):
+    return DummyAgent()
+
+# --- Streamlit app logic ---
 st.title("Transit Data Chatbot")
+
 uploaded_file = st.file_uploader("Upload a file", type=["csv", "pdf", "json"])
 
 if uploaded_file:
@@ -32,7 +55,7 @@ if uploaded_file:
         except Exception as e:
             st.error(f"Error parsing JSON: {e}")
 
-# --- Flatten and index JSON for Q&A ---
+# --- JSON Flattening ---
 def flatten_json(y):
     out = []
 
