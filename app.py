@@ -2,14 +2,38 @@
 import streamlit as st
 import json
 import pandas as pd
-from file_handlers import parse_pdf, parse_csv
-from vectorstore_utils import prepare_vectorstore
-from df_agent_utils import build_sql_agent
+
+# === Inline replacements for missing modules ===
+
+def parse_csv(uploaded_file):
+    try:
+        return pd.read_csv(uploaded_file)
+    except Exception as e:
+        st.error(f"Error reading CSV: {e}")
+        return None
+
+def parse_pdf(uploaded_file):
+    return "PDF parsing not yet implemented."
+
+def prepare_vectorstore(text: str):
+    # Dummy placeholder: you should replace this with your actual vector store builder
+    return text
+
+class DummyAgent:
+    def __init__(self, context_text):
+        self.context = context_text
+
+    def run(self, query):
+        return f"Echoing query: {query}\n\nPreview:\n{self.context[:400]}..."
+
+def build_sql_agent(vectorstore):
+    return DummyAgent(vectorstore)
+
+# === Streamlit UI ===
 
 st.set_page_config(page_title="Transit Data Chatbot", layout="centered")
 st.title("Transit Data Chatbot")
 
-############ Helper Function to Flatten JSON ############
 def flatten_json(y):
     out = []
     def flatten(x, name=''):
@@ -24,37 +48,38 @@ def flatten_json(y):
     flatten(y)
     return "\n".join(out)
 
-############ Automatically Load Embedded JSON File ############
+# Load embedded file first
 def load_embedded_json():
     try:
         with open("getvehicles.json", "r") as f:
             data = json.load(f)
             st.session_state['json_data'] = data
-            st.success("Embedded JSON file loaded successfully.")
+            st.success("Embedded JSON file loaded.")
             return data
     except Exception as e:
-        st.error(f"Failed to load embedded JSON file: {e}")
+        st.warning(f"Could not load embedded JSON: {e}")
         return None
 
-if 'json_data' not in st.session_state:
+if "json_data" not in st.session_state:
     load_embedded_json()
 
-############ Optional File Upload by User ############
+# Optional user override
 st.subheader("Optional: Upload a new file")
-uploaded_file = st.file_uploader("Upload a file", type=["json", "csv", "pdf"])
+uploaded_file = st.file_uploader("Upload CSV, PDF, or JSON", type=["csv", "pdf", "json"])
 
 if uploaded_file:
     if uploaded_file.name.endswith(".csv"):
         df = parse_csv(uploaded_file)
-        st.session_state["data"] = df
-        st.write("CSV data preview:")
-        st.dataframe(df.head())
+        if df is not None:
+            st.session_state["data"] = df
+            st.write("CSV preview:")
+            st.dataframe(df.head())
 
     elif uploaded_file.name.endswith(".pdf"):
-        parsed_text = parse_pdf(uploaded_file)
-        st.session_state["data"] = parsed_text
-        st.write("PDF parsed preview:")
-        st.text(parsed_text[:500])
+        pdf_text = parse_pdf(uploaded_file)
+        st.session_state["data"] = pdf_text
+        st.write("PDF content preview:")
+        st.text(pdf_text[:500])
 
     elif uploaded_file.name.endswith(".json"):
         try:
@@ -64,9 +89,9 @@ if uploaded_file:
             if st.checkbox("Show raw JSON"):
                 st.json(json_data)
         except Exception as e:
-            st.error(f"Error parsing JSON: {e}")
+            st.error(f"Error reading JSON: {e}")
 
-############ Run Agent on Flattened JSON ############
+# Run agent if JSON available
 if "json_data" in st.session_state:
     flattened = flatten_json(st.session_state["json_data"])
     vectorstore = prepare_vectorstore(flattened)
@@ -77,8 +102,3 @@ if "json_data" in st.session_state:
     if query:
         answer = agent.run(query)
         st.write("Answer:", answer)
-
-############ Handle other types (CSV, PDF) if needed ############
-# Optional: Add handling logic for st.session_state["data"] if not JSON
-
-# End of app.py
